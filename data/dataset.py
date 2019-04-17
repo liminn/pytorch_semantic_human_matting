@@ -93,6 +93,7 @@ def random_patch(image, trimap, patch_size, bg=None, a=None):
 # read/ crop/ resize inputs including fb, bg, alpha, trimap, composited image
 # attention: all resize operation should be done before composition
 def read_crop_resize(name, patch_size, stage):
+	# name：(.png_img, .bg, 'bg')
     if name[2] == 'bg':
         img_path, bg_path = name[0].strip(), name[1].strip()
         assert os.path.isfile(img_path) and os.path.isfile(bg_path), (img_path, bg_path)
@@ -101,6 +102,7 @@ def read_crop_resize(name, patch_size, stage):
         fg = image[:,:,:3]
         a = image[:,:,3]
         bg = cv2.imread(bg_path)
+		# 待确认
         trimap = gen_trimap.rand_trimap(a)
 
         if stage == 't_net':
@@ -247,8 +249,9 @@ class human_matting_data(data.Dataset):
         self.data_root = args.dataDir
         self.patch_size = args.patch_size
         self.phase = args.train_phase
-        self.dataRatio = args.dataRatio
-
+        self.dataRatio = args.dataRatio   # dataRatio[i]代表第i个fg_list中的每张fg图片要合成多少张bg图片
+ 
+		### 支持多个fg_list.txt
         self.fg_paths = []
         for file in args.fgLists:
             fg_path = os.path.join(self.data_root, file)
@@ -256,13 +259,13 @@ class human_matting_data(data.Dataset):
             with open(fg_path, 'r') as f:
                 self.fg_paths.append(f.readlines())
 
-
+		### 单个bg_list.txt
         bg_path = os.path.join(self.data_root, args.bg_list)
         assert os.path.isfile(bg_path), "missing bg file at: ".format(bg_path)
         with open(bg_path, 'r') as f:
             self.path_bg = f.readlines()
 
-
+		### 验证：num_bg == dataRatio* num_fg
         assert len(self.path_bg) == sum([self.dataRatio[i]*len(self.fg_paths[i]) for i in range(len(self.fg_paths))]), \
             'the total num of bg is not equal to fg: bg-{}, fg-{}'\
                 .format(len(self.path_bg), [self.dataRatio[i]*len(self.fg_paths[i]) for i in range(len(self.fg_paths))])
@@ -389,6 +392,7 @@ class human_matting_data(data.Dataset):
 
         random.shuffle(self.path_bg)
 
+		### 将每一fg图片和n个bg图片配对，存储在self.names中
         count = 0
         for idx, path_list in enumerate(self.fg_paths):
             bg_per_fg = self.dataRatio[idx]
