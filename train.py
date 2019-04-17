@@ -251,8 +251,11 @@ def loss_function(img, trimap_pre, trimap_gt, alpha_pre, alpha_gt, bg, fg):
 
 
 def main():
+    print("=============> Loading args")
     args = get_args()
 
+    # set cpu/gpu
+    print("============> Environment init")
     if args.without_gpu:
         print("use CPU !")
         device = torch.device('cpu')
@@ -262,6 +265,7 @@ def main():
         else:
             print("No GPU is is available !")
 
+    # build model
     print("============> Building model ...")
     if args.train_phase == 'pre_train_t_net':
         model = network.net_T()
@@ -274,7 +278,6 @@ def main():
             model = Train_Log.load_pretrain(model)
     else:
         raise ValueError('Wrong train phase request!')
-    train_data = dataset.human_matting_data(args)
     model.to(device)
 
     # debug setting
@@ -286,9 +289,9 @@ def main():
         args.print_iter = 1
         save_latest_freq = 10
 
-    print(args)
+    # set datasets
     print("============> Loading datasets ...")
-
+    train_data = dataset.human_matting_data(args)
     trainloader = DataLoader(train_data,
                              batch_size=args.train_batch, 
                              drop_last=True, 
@@ -296,12 +299,14 @@ def main():
                              num_workers=args.nThreads, 
                              pin_memory=True)
 
+    # set optimizer
     print("============> Set optimizer ...")
     lr = args.lr
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), \
                                    lr=lr, betas=(0.9, 0.999), 
                                    weight_decay=0.0005)    
 
+    # set train
     print("============> Start Train ! ...")
     start_epoch = 1
     trainlog = Train_Log(args)
@@ -322,7 +327,7 @@ def main():
         for i, sample_batched in enumerate(trainloader):
 
             optimizer.zero_grad()
-
+            # pretrain t_net
             if args.train_phase == 'pre_train_t_net':
                 img, trimap_gt = sample_batched['image'], sample_batched['trimap']
                 img, trimap_gt = img.to(device), trimap_gt.to(device)
@@ -342,7 +347,7 @@ def main():
                 if i!=0 and i % save_latest_freq == 0:
                     print("average loss: {:.5f}\nsaving model ....".format(loss_ / (i+1)))
                     trainlog.save_model(model, epoch)
-
+            # pretrain m_net
             elif args.train_phase == 'pre_train_m_net':
                 img, trimap_gt, alpha_gt, bg, fg = sample_batched['image'], sample_batched['trimap'], sample_batched['alpha'], sample_batched['bg'], sample_batched['fg']
                 img, trimap_gt, alpha_gt, bg, fg = img.to(device), trimap_gt.to(device), alpha_gt.to(device), bg.to(device), fg.to(device)
@@ -368,7 +373,7 @@ def main():
                 if i!=0 and i % save_latest_freq == 0:
                     print("average loss: {:.5f}\nsaving model ....".format(loss_ / (i + 1)))
                     trainlog.save_model(model, epoch)
-
+            # end_to_end train
             elif args.train_phase == 'end_to_end':
                 img, trimap_gt, alpha_gt, bg, fg = sample_batched['image'], sample_batched['trimap'], sample_batched['alpha'], sample_batched['bg'], sample_batched['fg']
                 img, trimap_gt, alpha_gt, bg, fg = img.to(device), trimap_gt.to(device), alpha_gt.to(device), bg.to(device), fg.to(device)
@@ -426,7 +431,6 @@ def main():
 
         if epoch % args.save_epoch == 0:
             trainlog.save_model(model, epoch, save_as=True)
-
 
 
 if __name__ == "__main__":

@@ -256,10 +256,12 @@ class human_matting_data(data.Dataset):
             with open(fg_path, 'r') as f:
                 self.fg_paths.append(f.readlines())
 
+
         bg_path = os.path.join(self.data_root, args.bg_list)
         assert os.path.isfile(bg_path), "missing bg file at: ".format(bg_path)
         with open(bg_path, 'r') as f:
             self.path_bg = f.readlines()
+
 
         assert len(self.path_bg) == sum([self.dataRatio[i]*len(self.fg_paths[i]) for i in range(len(self.fg_paths))]), \
             'the total num of bg is not equal to fg: bg-{}, fg-{}'\
@@ -295,9 +297,9 @@ class human_matting_data(data.Dataset):
             # to tensor
             image = np2Tensor(image)
             trimap = np2Tensor(trimap)
-
+            
             trimap = trimap.unsqueeze_(0)  # shape: 1, h, w
-
+            
             sample = {'image':image, 'trimap':trimap}
 
         elif self.phase == 'pre_train_m_net':

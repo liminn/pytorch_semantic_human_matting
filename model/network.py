@@ -59,7 +59,6 @@ class net_F(nn.Module):
         self.m_net = M_net()
 
 
-
     def forward(self, input):
 
     	# trimap
