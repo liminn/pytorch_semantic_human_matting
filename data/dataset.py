@@ -34,6 +34,9 @@ def resize_bg(bg, h, w):
 
 # randomly crop images, then resize to patch_size
 def random_patch(image, trimap, patch_size, bg=None, a=None):
+    """
+    剪裁原图一半或以上大小，然后缩放到固定尺寸
+    """
     h, w = image.shape[:2]
     max_size = max(h, w)
     min_size = max_size // 2
@@ -52,6 +55,7 @@ def random_patch(image, trimap, patch_size, bg=None, a=None):
         else:
             raise ValueError('no bg or alpha given from input!')
 
+        # 在(max_size,max_size)的图像中间，填满原图
         if h >= w:
             sqr_tri[:, (h - w) // 2: (h - w) // 2 + w] = trimap
             sqr_img[:, (h - w) // 2: (h - w) // 2 + w] = image
@@ -61,7 +65,9 @@ def random_patch(image, trimap, patch_size, bg=None, a=None):
             sqr_img[(w - h) // 2: (w - h) // 2 + h, :] = image
             sqr_bga[(w - h) // 2: (w - h) // 2 + h, :] = bga
 
+        # crop_size在min_size和max_size之间
         crop_size = random.randint(min_size, max_size)  # both value are inclusive
+        
         x = random.randint(0, max_size - crop_size)  # 0 is inclusive
         y = random.randint(0, max_size - crop_size)
         trimap_temp = sqr_tri[y: y + crop_size, x: x + crop_size]
@@ -82,7 +88,7 @@ def random_patch(image, trimap, patch_size, bg=None, a=None):
             image = sqr_img
             bga = sqr_bga
             break
-
+            
         count += 1  # debug usage
 
     image = cv2.resize(image, (patch_size, patch_size), interpolation=cv2.INTER_CUBIC)
@@ -103,8 +109,9 @@ def read_crop_resize(name, patch_size, stage):
         a = image[:,:,3]
         bg = cv2.imread(bg_path)
 		# 待确认
+        # trimap: 1, h, w / [0,128,255]  ,  float 
         trimap = gen_trimap.rand_trimap(a)
-
+        
         if stage == 't_net':
             image, bg = random_patch(image, trimap, patch_size, bg=bg)
             fg = image[:,:,:3]
@@ -112,9 +119,9 @@ def read_crop_resize(name, patch_size, stage):
             # composite fg and bg, generate trimap
             img = composite(fg, a, bg)
             trimap = gen_trimap.rand_trimap(a)
-
+            
             return img, trimap
-
+            
         elif stage == 'm_net':
             fg, a, bg = mask_center_crop(fg, a, bg, trimap, patch_size)
             # generate trimap again to avoid alpha resize side-effect on trimap
@@ -132,11 +139,11 @@ def read_crop_resize(name, patch_size, stage):
             a_m  = image_m[:,:,3]
             img_m = composite(fg_m, a_m, bg_m)
             trimap_m = gen_trimap.rand_trimap(a_m)
-
+            
             # random flip and rotation before going to m_net
             bg_m = bg_m.astype(np.uint8)
             img_m, trimap_m, a_m, bg_m, fg_m = random_flip_rotation(img_m, trimap_m, a_m, bg_m, fg_m)
-
+            
             # for m_net
             fg, a, bg = mask_center_crop(fg_m, a_m, bg_m, trimap_m, m_patch)
             # generate trimap again to avoid alpha resize side-effect on trimap
@@ -246,54 +253,51 @@ class human_matting_data(data.Dataset):
     """
     def __init__(self, args):
         super().__init__()
-        self.data_root = args.dataDir
+        #self.data_root = args.dataDir
         self.patch_size = args.patch_size
         self.phase = args.train_phase
-        self.dataRatio = args.dataRatio   # dataRatio[i]代表第i个fg_list中的每张fg图片要合成多少张bg图片
- 
-		### 支持多个fg_list.txt
-        self.fg_paths = []
-        for file in args.fgLists:
-            fg_path = os.path.join(self.data_root, file)
-            assert os.path.isfile(fg_path), "missing file at {}".format(fg_path)
-            with open(fg_path, 'r') as f:
-                self.fg_paths.append(f.readlines())
+        #self.dataRatio = args.dataRatio   # dataRatio[i]代表第i个fg_list中的每张fg图片要合成多少张bg图片
 
-		### 单个bg_list.txt
-        bg_path = os.path.join(self.data_root, args.bg_list)
-        assert os.path.isfile(bg_path), "missing bg file at: ".format(bg_path)
-        with open(bg_path, 'r') as f:
-            self.path_bg = f.readlines()
-
-		### 验证：num_bg == dataRatio* num_fg
-        assert len(self.path_bg) == sum([self.dataRatio[i]*len(self.fg_paths[i]) for i in range(len(self.fg_paths))]), \
-            'the total num of bg is not equal to fg: bg-{}, fg-{}'\
-                .format(len(self.path_bg), [self.dataRatio[i]*len(self.fg_paths[i]) for i in range(len(self.fg_paths))])
-        self.num = len(self.path_bg)
+        ### add
+        """
+        待改进，这里只有train数据，没有涉及验证集数据
+        """
+        self.train_list = args.train_list
+        self.fg_path = args.fg_path         # 存四通道图(fg+alpha)
+        self.bg_path = args.bg_path         # 存原图
+        # self.alpha_path = args.alpha_path
+        
+        ### add
+        assert os.path.isfile(self.train_list), "missing file at {}".format(fg_path)
+        
+        with open(self.train_list, 'r') as f:
+            self.fg_names= f.readlines()
 
         #self.shuffle_count = 0
         self.shuffle_data()
 
+        self.num = len(self.fg_names)
         print("Dataset : total training images:{}".format(self.num))
 
     def __getitem__(self, index):
+        
         # data structure returned :: dict {}
         # image: c, h, w / range[0-1] , float
         # trimap: 1, h, w / [0,1,2]  ,  float
-        # alpha: 1, h, w / range[0-1] , float
+        # alpha: 1, h, w / range[0-1] , float 
         
         if self.phase == 'pre_train_t_net':
             # read files, random crop and resize
             image, trimap = read_crop_resize(self.names[index], self.patch_size, stage='t_net')
             # augmentation
             image, trimap = random_flip_rotation(image, trimap)
-
+            
             # NOTE ! ! ! trimap should be 3 classes for classification : fg, bg. unsure
             trimap[trimap == 0] = 0
             trimap[trimap == 128] = 1
             trimap[trimap == 255] = 2
             assert image.shape[:2] == trimap.shape[:2]
-
+            
             # normalize
             image = image.astype(np.float32) / 255.0
 
@@ -310,7 +314,7 @@ class human_matting_data(data.Dataset):
             image, trimap, alpha, bg, fg = read_crop_resize(self.names[index], self.patch_size, stage='m_net')
             # augmentation
             image, trimap, alpha, bg, fg = random_flip_rotation(image, trimap, alpha, bg, fg)
-
+            
             # NOTE ! ! ! trimap should be 3 classes for classification : fg, bg. unsure
             trimap[trimap == 0] = 0
             trimap[trimap == 128] = 1
@@ -326,7 +330,7 @@ class human_matting_data(data.Dataset):
 
             # trimap one-hot encoding: when pre-train M_net, trimap should have 3 channels
             trimap = np.eye(3)[trimap.reshape(-1)].reshape(list(trimap.shape)+[3])
-
+            
             # to tensor
             image = np2Tensor(image)
             trimap = np2Tensor(trimap)
@@ -386,29 +390,20 @@ class human_matting_data(data.Dataset):
         return sample
 
     def shuffle_data(self):
+
         # data structure of self.names:: list
         # (.png_img, .bg, 'bg') or (.composite, .mask, 'msk) :: tuple
         self.names = []
 
-        random.shuffle(self.path_bg)
-
-		### 将每一fg图片和n个bg图片配对，存储在self.names中
+        ### add
+        ### 将每一fg图片和bg图片配对，存储在self.names中
         count = 0
-        for idx, path_list in enumerate(self.fg_paths):
-            bg_per_fg = self.dataRatio[idx]
-            for path in path_list:
-                for i in range(bg_per_fg):
-                    self.names.append((path, self.path_bg[count], 'bg'))  # 'bg' means we need to composite fg & bg
-                    count += 1
-        
-        assert count == len(self.path_bg)
-
-        """# debug usage: check shuffled data after each call
-        with open('shuffled_data_{}.txt'.format(self.shuffle_count),'w') as f:
-            for name in self.names:
-                f.write(name[0].strip()+'  ||  '+name[1].strip()+'\n')
-        self.shuffle_count += 1
-        """
+        for idx, name in enumerate(self.fg_names):
+            fg_path = os.path.join(self.fg_path,name)
+            bg_path = os.path.join(self.bg_path,name) 
+            self.names.append((fg_path, bg_path, 'bg'))  
+            count += 1
+        assert count == len(self.fg_names)
 
     def __len__(self):
         return self.num

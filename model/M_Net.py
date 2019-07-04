@@ -2,14 +2,13 @@
 import torch
 import torch.nn as nn
 
-
 class M_net(nn.Module):
     '''
         encoder + decoder
     '''
 
     def __init__(self, classes=2):
-
+        
         super(M_net, self).__init__()
         # -----------------------------------------------------------------
         # encoder  
@@ -66,7 +65,9 @@ class M_net(nn.Module):
         # stage-0
         self.conv_0 = nn.Conv2d(64, 1, 5, 1, 2, bias=True)
 
-
+        # 
+        self.activation = nn.Sigmoid()
+        
     def forward(self, input):
 
         # ----------------
@@ -113,6 +114,9 @@ class M_net(nn.Module):
         # raw alpha pred
         raw_alpha = self.conv_0(x1d)
 
+        # 加上sigmoid,使得输出为0~1
+        raw_alpha = self.activation(raw_alpha)
+        
         return raw_alpha
 
 

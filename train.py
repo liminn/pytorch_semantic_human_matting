@@ -12,19 +12,25 @@ from data import dataset
 from model import network
 import torch.nn.functional as F
 
-
 def get_args():
     # Training settings
     parser = argparse.ArgumentParser(description='Semantic Human Matting !')
-    parser.add_argument('--dataDir', default='./data/', help='dataset directory')
-    parser.add_argument('--fgLists', type=list, default=[], required=True, help="training fore-ground images lists")
-    parser.add_argument('--bg_list', type=str, required=True, help='train back-ground images list, one file')
-    parser.add_argument('--dataRatio', type=list, default=[], required=True, help="train bg:fg raio, eg. [100]")
+    #parser.add_argument('--dataDir', default='./data/', help='dataset directory')
+
+    parser.add_argument('--train_list', type=str, default="./data/train_list.txt", required=True, help="training fore-ground images lists")
+    parser.add_argument('--fg_path', type=str,default='./data/xx/fg', help='dataset directory')
+    parser.add_argument('--bg_path', type=str,default='./data/xx/bg', help='dataset directory')
+    parser.add_argument('--alpha_apth', type=str,default='./data/xx/alpha', help='dataset directory')
+
+    #parser.add_argument('--fgLists', type=list, default=["list.txt"], required=True, help="training fore-ground images lists")
+    #parser.add_argument('--bg_list', type=str, default="bg_list.txt",required=True, help='train back-ground images list, one file')
+    
+    #parser.add_argument('--dataRatio', type=list, default=[], required=True, help="train bg:fg raio, eg. [100]")
     parser.add_argument('--saveDir', default='./ckpt', help='model save dir')
     parser.add_argument('--trainData', default='human_matting_data', help='train dataset name')
 
     parser.add_argument('--continue_train', action='store_true', default=False, help='continue training the training')
-    parser.add_argument('--pretrain', action='store_true', help='load pretrained model from t_net & m_net ')
+    parser.add_argument('--pretrain', action='store_true', default=False, help='load pretrained model from t_net & m_net ')
     parser.add_argument('--without_gpu', action='store_true', default=False, help='no use gpu')
 
     parser.add_argument('--nThreads', type=int, default=4, help='number of threads for data loading')
@@ -70,7 +76,7 @@ def save_img(args, all_img, epoch, i=0):
             img_cat = img_cat.cpu().data.numpy()
         cv2.imwrite(img_dir + '/trimap_{}_{}.png'.format(str(epoch), str(i)),
                     img_cat.transpose((1, 2, 0)).astype(np.uint8))
-
+    
     if args.train_phase == 'pre_train_m_net':
         img, alpha_pre, alpha_gt = all_img
         img = img[0] * 255.0
@@ -110,6 +116,7 @@ def set_lr(args, epoch, optimizer):
 
     lrDecay = args.lrDecay
     decayType = args.lrdecayType
+    #print("decayType:{}".format(decayType))
     if decayType == 'keep':
         lr = args.lr
     elif decayType == 'step':
@@ -125,8 +132,6 @@ def set_lr(args, epoch, optimizer):
         param_group['lr'] = lr
 
     return lr
-
-  
 
 class Train_Log():
     def __init__(self, args):
@@ -201,10 +206,15 @@ def weight_init(m):
 
 def loss_f_T(trimap_pre, trimap_gt):
     criterion = nn.CrossEntropyLoss()
+    """
+    对于nn.CrossEntropyLoss()：
+        input的shape应为[batch_size, channel , h, w]
+        target的shape应为 [batch_size, h, w]
+        用这个loss前面不需要加Softmax层
+    """
     L_t = criterion(trimap_pre, trimap_gt[:, 0, :, :].long())
 
     return L_t
-
 
 def loss_f_M(img, alpha_pre, alpha_gt, bg, fg, trimap):
     # -------------------------------------
@@ -251,10 +261,11 @@ def loss_function(img, trimap_pre, trimap_gt, alpha_pre, alpha_gt, bg, fg):
 
 
 def main():
+    # 定义参数
     print("=============> Loading args")
     args = get_args()
 
-    # set cpu/gpu
+    # 设置cpu/gpu
     print("============> Environment init")
     if args.without_gpu:
         print("use CPU !")
@@ -265,7 +276,7 @@ def main():
         else:
             print("No GPU is is available !")
 
-    # build model
+    # 构建网络模型
     print("============> Building model ...")
     if args.train_phase == 'pre_train_t_net':
         model = network.net_T()
@@ -280,16 +291,7 @@ def main():
         raise ValueError('Wrong train phase request!')
     model.to(device)
 
-    # debug setting
-    save_latest_freq = int(len(train_data)//args.train_batch*0.55)
-    if args.debug:
-        args.save_epoch = 1
-        args.train_batch = 1  # defualt debug: 1
-        args.nEpochs = 1
-        args.print_iter = 1
-        save_latest_freq = 10
-
-    # set datasets
+    # 构建datasets
     print("============> Loading datasets ...")
     train_data = dataset.human_matting_data(args)
     trainloader = DataLoader(train_data,
@@ -298,6 +300,15 @@ def main():
                              shuffle=True, 
                              num_workers=args.nThreads, 
                              pin_memory=True)
+
+    # debug setting
+    save_latest_freq = int(len(train_data)//args.train_batch*0.55)
+    if args.debug:
+        args.save_epoch = 1
+        args.train_batch = 1    # defualt debug: 1
+        args.nEpochs = 1
+        args.print_iter = 1
+        save_latest_freq = 10
 
     # set optimizer
     print("============> Set optimizer ...")

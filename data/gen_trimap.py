@@ -73,7 +73,7 @@ def rand_trimap(msk, smooth=False):
     kernel_size_low  = max(1, round((h + w) /2 * scale_down))
     erode_kernel_size  = np.random.randint(kernel_size_low, kernel_size_high)
     dilate_kernel_size = np.random.randint(kernel_size_low, kernel_size_high)
-
+    
     erode_kernel  = cv2.getStructuringElement(cv2.MORPH_RECT, (erode_kernel_size, erode_kernel_size))
     dilate_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (dilate_kernel_size, dilate_kernel_size))
     eroded_alpha = cv2.erode(msk, erode_kernel)
@@ -99,8 +99,9 @@ def get_trimap(msk, smooth=True):
         scale_up, scale_down = 0.02, 0.006
         dmin = 5
         emax = 255 - dmin
-
-    kernel_size_high = max(10, round(h * scale_up))
+    
+    #kernel_size_high = max(10, round(h * scale_up))
+    kernel_size_high = max(5, round(h * scale_up))
     kernel_size_low  = max(1, round(h * scale_down))
     kernel_size = (kernel_size_high + kernel_size_low)//2
 
